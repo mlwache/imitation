@@ -91,6 +91,6 @@ parallel -j 25% --header : --results ${LOG_ROOT}/parallel/ --colsep , --progress
 pushd $LOG_ROOT
 
 # Display and save mean episode reward to ${RESULTS_FILE}.
-find . -name stdout | xargs tail -n 15 | grep -E '(==|ep_reward_mean)' | tee ${RESULTS_FILE}
+find . -name stdout | xargs tail -n 15 | grep -E '(==|ep_rew_mean)' | tee ${RESULTS_FILE}
 
 popd

@@ -12,9 +12,9 @@ import numpy as np
 import torch as th
 import torch.utils.data as th_data
 import tqdm.autonotebook as tqdm
-from stable_baselines3.common import logger, policies, utils
+from stable_baselines3.common import logger, policies, utils, vec_env
 
-from imitation.data import types
+from imitation.data import rollout, types
 from imitation.policies import base
 
 
@@ -53,6 +53,17 @@ class ConstantLRSchedule:
         return self.lr
 
 
+class _NoopTqdm:
+    def close(self):
+        pass
+
+    def set_description(self, s):
+        pass
+
+    def update(self, n):
+        pass
+
+
 class EpochOrBatchIteratorWithProgress:
     def __init__(
         self,
@@ -60,6 +71,7 @@ class EpochOrBatchIteratorWithProgress:
         n_epochs: Optional[int] = None,
         n_batches: Optional[int] = None,
         on_epoch_end: Optional[Callable[[], None]] = None,
+        visible: bool = False,
     ):
         """Wraps DataLoader so that all BC batches can be processed in a one for-loop.
 
@@ -87,6 +99,7 @@ class EpochOrBatchIteratorWithProgress:
         self.n_epochs = n_epochs
         self.n_batches = n_batches
         self.on_epoch_end = on_epoch_end
+        self.visible = visible
 
     def __iter__(self) -> Iterable[Tuple[dict, dict]]:
         """Yields batches while updating tqdm display to display progress."""
@@ -95,7 +108,9 @@ class EpochOrBatchIteratorWithProgress:
         epoch_num = 0
         batch_num = 0
         batch_suffix = epoch_suffix = ""
-        if self.use_epochs:
+        if not self.visible:
+            display = _NoopTqdm()
+        elif self.use_epochs:
             display = tqdm.tqdm(total=self.n_epochs)
             epoch_suffix = f"/{self.n_epochs}"
         else:  # Use batches.
@@ -292,6 +307,7 @@ class BC:
         n_batches: Optional[int] = None,
         on_epoch_end: Callable[[], None] = None,
         log_interval: int = 100,
+        rollout_venv: vec_env.VecEnv = None,
     ):
         """Train with supervised learning for some number of epochs.
 
@@ -326,11 +342,22 @@ class BC:
                 for stats in [stats_dict_it, stats_dict_loss]:
                     for k, v in stats.items():
                         logger.record(k, v)
+                if rollout_venv is not None:
+                    trajs = rollout.generate_trajectories(
+                        self.policy,
+                        rollout_venv,
+                        rollout.make_sample_until(n_timesteps=None, n_episodes=5),
+                    )
+                    stats = rollout.rollout_stats(trajs)
+                    logger.record("batch_size", len(batch["obs"]))
+                    for k, v in stats.items():
+                        if "return" in k and "monitor" not in k:
+                            logger.record("rollout/" + k, v)
                 logger.dump(batch_num)
             batch_num += 1
 
     def save_policy(self, policy_path: str) -> None:
-        """Save policy to a path. Can be reloaded by `.reconstruct_policy()`.
+        """Save policy to a path.
 
         Args:
             policy_path: path to save policy to.

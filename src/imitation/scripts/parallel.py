@@ -46,6 +46,10 @@ def parallel(
             Experiment selected via `sacred_ex_name`). Usually `search_space` only has
             the keys "named_configs" and "config_updates", but any parameter names
             to `sacred.Experiment.run()` are okay.
+
+            Note that due to the way we process this argument, it's okay to
+            make search_space itself be the return value of
+            `ray.tune.grid_search`.
         base_named_configs: Default Sacred named configs. Any named configs
             taken from `search_space` are higher priority than the base_named_configs.
             Concretely, this priority is implemented by appending named configs taken
@@ -108,11 +112,11 @@ def parallel(
     # dashboard.
     ray_loggers = ()
 
-    ray.init(**init_kwargs)
+    ray.init(**init_kwargs, local_mode=True)
     try:
         ray.tune.run(
             trainable,
-            config=search_space,
+            config={"search_space": search_space},
             name=run_name,
             local_dir=local_dir,
             upload_dir=upload_dir,
@@ -157,16 +161,16 @@ def _ray_tune_sacred_wrapper(
         # TODO(shwang): Stop modifying CAPTURE_MODE once the issue is fixed.
         sacred.SETTINGS.CAPTURE_MODE = "sys"
 
-        run_kwargs = config
+        run_kwargs = config["search_space"]
         updated_run_kwargs = {}
         # Import inside function rather than in module because Sacred experiments
         # are not picklable, and Ray requires this function to be picklable.
         from imitation.scripts.expert_demos import expert_demos_ex
-        from imitation.scripts.train_adversarial import train_ex
+        from imitation.scripts.train_adversarial import train_adversarial_ex
 
         experiments = {
             "expert_demos": expert_demos_ex,
-            "train_adversarial": train_ex,
+            "train_adversarial": train_adversarial_ex,
         }
         ex = experiments[sacred_ex_name]
 
@@ -189,6 +193,7 @@ def _ray_tune_sacred_wrapper(
             if k not in updated_run_kwargs:
                 updated_run_kwargs[k] = v
 
+        # run = ex.run(**updated_run_kwargs, options={"--run": run_name, "--pdb": ""})
         run = ex.run(**updated_run_kwargs, options={"--run": run_name})
 
         # Ray Tune has a string formatting error if raylet completes without

@@ -1,6 +1,9 @@
 """Tests for DAgger."""
+
+import contextlib
 import glob
 import os
+import pickle
 
 import gym
 import numpy as np
@@ -14,6 +17,7 @@ from imitation.util import util
 
 ENV_NAME = "CartPole-v1"
 EXPERT_POLICY_PATH = "tests/data/expert_models/cartpole_0/policies/final/"
+EXPERT_ROLLOUTS_PATH = "tests/data/expert_models/cartpole_0/rollouts/final.pkl"
 
 
 def test_beta_schedule():
@@ -59,28 +63,110 @@ def test_traj_collector(tmpdir):
     assert nonzero_acts == 0
 
 
-def make_trainer(tmpdir, beta_schedule=dagger.LinearBetaSchedule(1)):
+@pytest.fixture
+def env():
     env = gym.make(ENV_NAME)
     env.seed(42)
+    return env
+
+
+@pytest.fixture
+def venv():
+    return util.make_vec_env(ENV_NAME, 10)
+
+
+@pytest.fixture
+def expert_policy(venv):
+    return serialize.load_policy("ppo", EXPERT_POLICY_PATH, venv)
+
+
+@pytest.fixture(params=[True, False])
+def expert_trajs(request):
+    keep_trajs = request.param
+    if keep_trajs:
+        with open(EXPERT_ROLLOUTS_PATH, "rb") as f:
+            return pickle.load(f)
+    else:
+        return None
+
+
+def _build_dagger_trainer(tmpdir, env, beta_schedule, expert_policy, expert_trajs):
+    del expert_policy
+    if expert_trajs is not None:
+        pytest.skip(
+            "DAgger trainer does not use trajectories. "
+            "Skipping to avoid duplicate test."
+        )
     return dagger.DAggerTrainer(
         env,
-        tmpdir,
-        beta_schedule,
-        optimizer_kwargs=dict(lr=1e-3),
+        scratch_dir=tmpdir,
+        beta_schedule=beta_schedule,
+        bc_kwargs={"optimizer_kwargs": dict(lr=1e-3)},
+    )
+
+
+def _build_simple_dagger_trainer(
+    tmpdir, env, beta_schedule, expert_policy, expert_trajs
+):
+    return dagger.SimpleDAggerTrainer(
+        env,
+        log_dir=tmpdir,
+        beta_schedule=beta_schedule,
+        bc_kwargs={"optimizer_kwargs": dict(lr=1e-3)},
+        expert_policy=expert_policy,
+        expert_trajs=expert_trajs,
     )
 
 
 @pytest.fixture(params=[None, dagger.LinearBetaSchedule(1)])
-def trainer(request, tmpdir):
-    beta_sched = request.param
-    return make_trainer(tmpdir, beta_sched)
+def beta_schedule(request):
+    return request.param
 
 
-def test_trainer_makes_progress(trainer):
-    venv = util.make_vec_env(ENV_NAME, 10)
-    with pytest.raises(dagger.NeedsDemosException):
-        trainer.extend_and_update()
+# This function got out of hand because I was trying to shoehorn it into
+# test_trainer_save_reload. Let me know if this structure is too convoluted and
+# I can try to refactor it into something simpler that satisfies
+# `test_trainer_save_reload`.
+@pytest.fixture(params=[_build_dagger_trainer, _build_simple_dagger_trainer])
+def make_trainer_fn(
+    request, tmpdir, env, beta_schedule, expert_policy, expert_trajs
+):
+    builder = request.param
+    return lambda: builder(tmpdir, env, beta_schedule, expert_policy, expert_trajs)
+
+
+@pytest.fixture
+def trainer(make_trainer_fn):
+    return make_trainer_fn()
+
+
+def test_trainer_needs_demos_exception_error(
+    trainer,
+    expert_trajs,
+):
     assert trainer.round_num == 0
+    error_ctx = pytest.raises(dagger.NeedsDemosException)
+    if expert_trajs is not None and isinstance(trainer, dagger.SimpleDAggerTrainer):
+        # In this case, demos should be preloaded and we shouldn't experience
+        # the NeedsDemoException error.
+        ctx = contextlib.nullcontext()
+    else:
+        # In all cases except the one above, an error should be raised because
+        # there are no demos to update on.
+        ctx = error_ctx
+
+    with ctx:
+        trainer.extend_and_update(n_epochs=1)
+
+    if ctx == contextlib.nullcontext():
+        with error_ctx:
+            # If ctx=nullcontext before, then we should fail on the second call
+            # because there aren't any demos loaded into round 1 yet.
+            trainer.extend_and_update(n_epochs=1)
+
+
+def test_trainer_makes_progress(trainer, venv, expert_policy):
+    venv = util.make_vec_env(ENV_NAME, 10)
     pre_train_rew_mean = rollout.mean_return(
         trainer.bc_trainer.policy,
         venv,
@@ -90,7 +176,6 @@ def test_trainer_makes_progress(trainer):
     # checking that the initial policy is poor can be flaky; sometimes the
     # randomly initialised policy performs very well, and it's not clear why
     # assert pre_train_rew_mean < 100
-    expert_policy = serialize.load_policy("ppo", EXPERT_POLICY_PATH, venv)
     for i in range(2):
         # roll out a few trajectories for dataset, then train for a few steps
         collector = trainer.get_trajectory_collector()
@@ -116,7 +201,9 @@ def test_trainer_makes_progress(trainer):
     )
 
 
-def test_trainer_save_reload(tmpdir, trainer):
+def test_trainer_save_reload(tmpdir, trainer, make_trainer_fn):
+    if isinstance(trainer, dagger.SimpleDAggerTrainer):
+        pytest.skip(f"{trainer} is not picklable.")
     trainer.round_num = 3
     trainer.save_trainer()
     new_trainer = dagger.reconstruct_trainer(tmpdir)
@@ -130,16 +217,15 @@ def test_trainer_save_reload(tmpdir, trainer):
         assert values.equal(old_vars[var])
 
     # also those values should be different from a newly created trainer
-    third_trainer = make_trainer(tmpdir)
+    third_trainer = make_trainer_fn()
     third_vars = third_trainer.bc_trainer.policy.state_dict()
     assert len(third_vars) == len(old_vars)
     assert not all(values.equal(old_vars[var]) for var, values in third_vars.items())
 
 
-def test_policy_save_reload(tmpdir):
+def test_policy_save_reload(tmpdir, trainer):
     # just make sure the methods run; we already test them in test_bc.py
     policy_path = os.path.join(tmpdir, "policy.pt")
-    trainer = make_trainer(tmpdir)
     trainer.save_policy(policy_path)
     pol = bc.reconstruct_policy(policy_path)
     assert isinstance(pol, policies.BasePolicy)

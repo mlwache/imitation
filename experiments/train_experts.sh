@@ -5,9 +5,11 @@ set -e
 # When training is finished, it reports the mean episode reward of each
 # expert.
 
-ENVS+="acrobot cartpole mountain_car "
-ENVS+="reacher half_cheetah hopper ant humanoid swimmer walker "
-ENVS+="two_d_maze custom_ant disabled_ant "
+ ENVS+="seals_cartpole seals_mountain_car "
+# ENVS+="acrobot cartpole mountain_car "
+# ENVS+="reacher half_cheetah hopper ant humanoid swimmer walker "
+# ENVS+="half_cheetah ant humanoid"
+# ENVS+="two_d_maze custom_ant disabled_ant "
 
 SEEDS="0 1 2"
 
@@ -15,8 +17,9 @@ TIMESTAMP=$(date --iso-8601=seconds)
 OUTPUT_DIR="output/train_experts/${TIMESTAMP}"
 RESULTS_FILE="results.txt"
 extra_configs=""
+extra_parallel_options=""
 
-TEMP=$(getopt -o fr -l fast,regenerate -- $@)
+TEMP=$(getopt -o frT -l fast,regenerate,tmux -- $@)
 if [[ $? != 0 ]]; then exit 1; fi
 eval set -- "$TEMP"
 
@@ -46,6 +49,11 @@ while true; do
 
       shift
       ;;
+    -T | --tmux)
+      # Open each process in a tmux window.
+      extra_parallel_options+="--tmux "
+      shift
+      ;;
     --)
       shift
       break
@@ -60,6 +68,7 @@ done
 echo "Writing logs in ${OUTPUT_DIR}"
 # Train experts.
 parallel -j 25% --header : --progress --results ${OUTPUT_DIR}/parallel/ \
+  ${extra_parallel_options} \
   python -m imitation.scripts.expert_demos \
   --capture=sys \
   with \
@@ -71,7 +80,7 @@ parallel -j 25% --header : --progress --results ${OUTPUT_DIR}/parallel/ \
 pushd $OUTPUT_DIR
 
 # Display and save mean episode reward to ${RESULTS_FILE}.
-find . -name stdout | xargs tail -n 15 | grep -E '(==|ep_reward_mean)' | tee ${RESULTS_FILE}
+find . -name stdout | xargs tail -n 15 | grep -E '(==|ep_rew_mean)' | tee ${RESULTS_FILE}
 
 popd
 

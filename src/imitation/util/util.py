@@ -4,6 +4,7 @@ import itertools
 import os
 import uuid
 from typing import (
+Any,
     Callable,
     Iterable,
     Iterator,
@@ -183,3 +184,8 @@ def endless_iter(iterable: Iterable[T]) -> Iterator[T]:
         raise err
 
     return itertools.chain.from_iterable(itertools.repeat(iterable))
+
+
+def is_iter(x: Any)-> bool:
+    """Return True iff x is iterable."""
+    pass

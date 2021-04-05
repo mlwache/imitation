@@ -14,7 +14,7 @@ from sacred.observers import FileStorageObserver
 from imitation.algorithms import adversarial
 from imitation.data import rollout, types
 from imitation.policies import serialize
-from imitation.scripts.config.train_adversarial import train_ex
+from imitation.scripts.config.train_adversarial import train_adversarial_ex
 from imitation.util import logger
 from imitation.util import sacred as sacred_util
 from imitation.util import util
@@ -25,7 +25,7 @@ def save(trainer, save_path):
     # We implement this here and not in Trainer since we do not want to actually
     # serialize the whole Trainer (including e.g. expert demonstrations).
     os.makedirs(save_path, exist_ok=True)
-    th.save(trainer.discrim, os.path.join(save_path, "discrim.pt"))
+    th.save(trainer.discrim_net, os.path.join(save_path, "discrim.pt"))
     # TODO(gleave): unify this with the saving logic in data_collect?
     # (Needs #43 to be merged before attempting.)
     serialize.save_stable_model(
@@ -35,8 +35,8 @@ def save(trainer, save_path):
     )
 
 
-@train_ex.main
-def train(
+@train_adversarial_ex.main
+def train_adversarial(
     _run,
     _seed: int,
     algorithm: str,
@@ -65,7 +65,7 @@ def train(
 
     Args:
         _seed: Random seed.
-        algorithm: A case-insensitive string determining which adversarial imitation
+        algorithm: A case-insensrtive string determining which adversarial imitation
             learning algorithm is executed. Either "airl" or "gail".
         env_name: The environment to train in.
         num_vec: Number of `gym.Env` to vectorize.
@@ -208,6 +208,11 @@ def train(
         **final_algorithm_kwargs,
     )
 
+    logging.info(f"Discriminator network summary:\n {trainer.discrim_net}")
+    logging.info(f"RL algorithm: {type(trainer.gen_algo)}")
+    logging.info(f"Imitation (generator) policy network summary:\n"
+                 f"{trainer.gen_algo.policy}")
+
     def callback(round_num):
         if checkpoint_interval > 0 and round_num % checkpoint_interval == 0:
             save(trainer, os.path.join(log_dir, "checkpoints", f"{round_num:05d}"))
@@ -226,13 +231,15 @@ def train(
     )
     results["expert_stats"] = rollout.rollout_stats(expert_trajs)
     results["imit_stats"] = rollout.rollout_stats(trajs)
+
+    print(f"LOG: tbl {log_dir}")
     return results
 
 
 def main_console():
-    observer = FileStorageObserver(osp.join("output", "sacred", "train"))
-    train_ex.observers.append(observer)
-    train_ex.run_commandline()
+    observer = FileStorageObserver(osp.join("output", "sacred", "train_adversarial"))
+    train_adversarial_ex.observers.append(observer)
+    train_adversarial_ex.run_commandline()
 
 
 if __name__ == "__main__":  # pragma: no cover
