@@ -1,20 +1,10 @@
 
-# import glob
-# import os
 import tempfile
-import typing
-
 import gym
-# import numpy as np
-import pytest
-import torch
-# from stable_baselines3.common import policies
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.vec_env import VecEnv, DummyVecEnv
 
-from imitation.algorithms import dagger  #, bc
-from imitation.algorithms.dagger import DAggerTrainer
-# from imitation.data import rollout
+from imitation.algorithms import dagger
 from imitation.policies import serialize
 from imitation.util import util
 
@@ -22,20 +12,20 @@ ENV_NAME = "CartPole-v1"
 EXPERT_POLICY_PATH = "tests/data/expert_models/cartpole_0/policies/final/"
 N_ROUNDS = 2
 N_TRAJECTORIES_PER_ROUND = 5
-# N_ENVIRONMENTS = 1
+N_ENVIRONMENTS = 1
 SCRATCH_DIRECTORY = "experiments/scratch_dir/"
 
 
 def run_and_show():
 
     print('Making DAggerTrainer and policy...')
-    trainer = make_trainer(SCRATCH_DIRECTORY)
+    trainer = make_trainer()
     agent_policy = trainer.bc_trainer.policy
 
     print('Making environment...')
-    vector_env: DummyVecEnv = util.make_vec_env(ENV_NAME)  # type:ignore
-    dummy_vec_env: DummyVecEnv = vector_env.unwrapped
-    single_env = dummy_vec_env.envs[0].unwrapped
+    vector_env: DummyVecEnv = util.make_vec_env(ENV_NAME, n_envs=N_ENVIRONMENTS)  # type:ignore
+    # dummy_vec_env: DummyVecEnv = vector_env.unwrapped
+    # single_env = dummy_vec_env.envs[0].unwrapped
 
     print('loading expert policy...')
     vector_expert_policy = serialize.load_policy("ppo", EXPERT_POLICY_PATH, vector_env)
@@ -45,7 +35,7 @@ def run_and_show():
     print(f'Average reward before training: {average_reward_before_training}')
 
     print('training DAgger...')
-    train_dagger(vector_expert_policy, trainer, single_env)
+    train_dagger(vector_expert_policy, trainer, vector_env)
 
     print("running DAgger after training...")
     trained_policy = trainer.bc_trainer.policy
@@ -88,7 +78,9 @@ def train_dagger(expert_policy, trainer, env, render=False):
                 # while randomly injecting the actual policy.
         trainer.extend_and_update(n_epochs=1)
 
-def make_trainer(tmpdir, beta_schedule=dagger.LinearBetaSchedule(1)):
+
+def make_trainer():
+    beta_schedule = dagger.LinearBetaSchedule(1)
     env = gym.make(ENV_NAME)
     env.seed(42)
     tmpdir = tempfile.TemporaryDirectory()
@@ -98,13 +90,6 @@ def make_trainer(tmpdir, beta_schedule=dagger.LinearBetaSchedule(1)):
         beta_schedule,
         optimizer_kwargs=dict(lr=1e-3),
     )
-
-
-@pytest.fixture(params=[None, dagger.LinearBetaSchedule(1)])
-def trainer(request, tmpdir):
-    beta_schedule = request.param
-    return make_trainer(tmpdir, beta_schedule)
-
 
 
 if __name__ == '__main__':
