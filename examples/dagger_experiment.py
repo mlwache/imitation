@@ -48,31 +48,31 @@ def run_and_show():
 
 
 def return_when_running_policy_on_env(policy: BasePolicy, env: VecEnv, render=False):
-    # # if we use it like in the tests (averaging over multiple trajectories/envs):
-    # mean_return = rollout.mean_return(
-    #     policy,
-    #     env,
-    #     sample_until=rollout.min_episodes(MIN_N_EPISODES),
-    # )
-    # return mean_return
-    observations = env.reset()
-    total_return = 0
-    step_n = 1
-    while True:
-        if render:
-            env.render()
-        action, _ = policy.predict(observations)
-        observation, reward, done, _ = env.step(action)
-        total_return += reward
-        if done[0]:  # when the first env is done. (we don't care about the  others here)
-            break
-        step_n += 1
-
-    # check that the environment is done as soon as the reward is not 1 anymore:
-    assert step_n == int(total_return)
-    env.close()
-
-    return total_return
+    # if we use it like in the tests (averaging over multiple trajectories/envs):
+    mean_return = rollout.mean_return(
+        policy,
+        env,
+        sample_until=rollout.min_episodes(MIN_N_EPISODES),
+    )
+    return mean_return
+    # observations = env.reset()
+    # total_return = 0
+    # step_n = 1
+    # while True:
+    #     if render:
+    #         env.render()
+    #     action, _ = policy.predict(observations)
+    #     observation, reward, done, _ = env.step(action)
+    #     total_return += reward
+    #     if done[0]:  # when the first env is done. (we don't care about the  others here)
+    #         break
+    #     step_n += 1
+    #
+    # # check that the environment is done as soon as the reward is not 1 anymore:
+    # assert step_n == int(total_return)
+    # env.close()
+    #
+    # return total_return
 
 
 def train_dagger(expert_policy, trainer, env, render=False):
