@@ -7,6 +7,8 @@ from stable_baselines3.common.vec_env import VecEnv, DummyVecEnv
 from imitation.algorithms import dagger
 from imitation.policies import serialize
 from imitation.util import util
+from imitation.data import rollout
+
 
 ENV_NAME = "CartPole-v1"
 EXPERT_POLICY_PATH = "tests/data/expert_models/cartpole_0/policies/final/"
@@ -14,6 +16,7 @@ N_ROUNDS = 2
 N_TRAJECTORIES_PER_ROUND = 5
 N_ENVIRONMENTS = 1
 SCRATCH_DIRECTORY = "experiments/scratch_dir/"
+MIN_N_EPISODES = 15
 
 
 def run_and_show():
@@ -31,34 +34,45 @@ def run_and_show():
     vector_expert_policy = serialize.load_policy("ppo", EXPERT_POLICY_PATH, vector_env)
 
     print('running DAgger before training...')
-    average_reward_before_training = evaluate_dagger_policy(agent_policy, vector_env)
-    print(f'Average reward before training: {average_reward_before_training}')
+    average_return_before_training = return_when_running_policy_on_env(agent_policy, vector_env)
+    print(f'Average return before training: {average_return_before_training}')
 
     print('training DAgger...')
     train_dagger(vector_expert_policy, trainer, vector_env)
 
     print("running DAgger after training...")
     trained_policy = trainer.bc_trainer.policy
-    average_reward_after_training = evaluate_dagger_policy(trained_policy, vector_env, render=False)
+    average_return_after_training = return_when_running_policy_on_env(trained_policy, vector_env, render=False)
 
-    print(f'Average reward after training: {average_reward_after_training}')
+    print(f'Average return after training: {average_return_after_training}')
 
 
-def evaluate_dagger_policy(policy: BasePolicy, env: VecEnv, render=False):
+def return_when_running_policy_on_env(policy: BasePolicy, env: VecEnv, render=False):
+    # # if we use it like in the tests (averaging over multiple trajectories/envs):
+    # mean_return = rollout.mean_return(
+    #     policy,
+    #     env,
+    #     sample_until=rollout.min_episodes(MIN_N_EPISODES),
+    # )
+    # return mean_return
     observations = env.reset()
-    average_reward = 0
-    n = 1  # counter to compute the average reward
+    total_return = 0
+    step_n = 1
     while True:
         if render:
             env.render()
         action, _ = policy.predict(observations)
         observation, reward, done, _ = env.step(action)
-        average_reward = (average_reward*(n-1) + reward)/n
-        if any(done):  # when some env is done.
+        total_return += reward
+        if done[0]:  # when the first env is done. (we don't care about the  others here)
             break
-        n += 1
+        step_n += 1
+
+    # check that the environment is done as soon as the reward is not 1 anymore:
+    assert step_n == int(total_return)
     env.close()
-    return average_reward
+
+    return total_return
 
 
 def train_dagger(expert_policy, trainer, env, render=False):
