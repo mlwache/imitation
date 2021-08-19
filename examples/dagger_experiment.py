@@ -83,15 +83,21 @@ def train_dagger(expert_policy, trainer, env, render=False):
     episode_lengths = []
     times_failed = 0
     for current_round in range(N_ROUNDS):
+        episode_lengths.append([])
         print(f'starting round {current_round} out of {N_ROUNDS}!')
         # roll out a few trajectories for dataset, then train for a few steps
         collector = trainer.get_trajectory_collector()  # for fetching demonstrations
-        # final_state_from_last_trajectory = obs
         for current_trajectory_within_round in range(N_TRAJECTORIES_PER_ROUND):
-            obs = collector.reset()  # first observation of a new trajectory.
-            # obs = collector.unwrapped.state
-            done = False
+
+            # reset only for the first trajectory.
+            final_obs_from_last_trajectory = np.array(collector.unwrapped.state)
+            if current_trajectory_within_round == 0:
+                obs = collector.reset()
+            else:
+                obs = collector.reset(final_obs_from_last_trajectory)
+
             j = 0
+            done = False
             while not done:
                 if render:
                     env.render()
@@ -102,7 +108,7 @@ def train_dagger(expert_policy, trainer, env, render=False):
                 j += 1
                 # while randomly injecting the actual policy.
                 if done:  # done because it failed
-                    assert env._max_episode_steps == np.inf
+                    assert collector.env._max_episode_steps == np.inf
                     times_failed += 1
                     collector.reset()
                 if j >= 505:
@@ -113,8 +119,7 @@ def train_dagger(expert_policy, trainer, env, render=False):
                         collector.save_dir, "dagger-demo-" + timestamp + ".npz"
                     )
                     _save_trajectory(trajectory_path, trajectory)
-                # final_state_from_last_trajectory = collector.unwrapped.state
-            episode_lengths.append(j)
+            episode_lengths[current_round].append(j)
         trainer.extend_and_update(n_epochs=1)
     print("episode lengths: ", episode_lengths)
     print("times failed:", times_failed)
