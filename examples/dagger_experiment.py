@@ -82,6 +82,7 @@ def return_when_running_policy_on_env(policy: BasePolicy, env: VecEnv, render=Fa
 def train_dagger(expert_policy, trainer, env, render=False):
     episode_lengths = []
     times_failed = 0
+    final_obs_from_last_trajectory = None
     for current_round in range(N_ROUNDS):
         episode_lengths.append([])
         print(f'starting round {current_round} out of {N_ROUNDS}!')
@@ -90,8 +91,7 @@ def train_dagger(expert_policy, trainer, env, render=False):
         for current_trajectory_within_round in range(N_TRAJECTORIES_PER_ROUND):
 
             # reset only for the first trajectory.
-            final_obs_from_last_trajectory = np.array(collector.unwrapped.state)
-            if current_trajectory_within_round == 0:
+            if current_round == 0 and current_trajectory_within_round == 0:
                 obs = collector.reset()
             else:
                 obs = collector.reset(final_obs_from_last_trajectory)
@@ -120,6 +120,7 @@ def train_dagger(expert_policy, trainer, env, render=False):
                     )
                     _save_trajectory(trajectory_path, trajectory)
             episode_lengths[current_round].append(j)
+            final_obs_from_last_trajectory = obs
         trainer.extend_and_update(n_epochs=1)
     print("episode lengths: ", episode_lengths)
     print("times failed:", times_failed)
