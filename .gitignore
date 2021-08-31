@@ -150,6 +150,7 @@ dmypy.json
 # yapf (code formatter)
 .style.yapf
 
+<<<<<<< HEAD
 
 # Various testing / quickstart artifacts:
 
@@ -157,3 +158,9 @@ dmypy.json
 /tests/data/reward_models
 # Produced by examples/quickstart.sh
 /quickstart/
+=======
+# cruft produced by one of the adversarial tests
+tests/data/reward_models
+
+experiments/scratch_dir
+>>>>>>> fa040b6c93d6279b410721647617bf3f2366372f

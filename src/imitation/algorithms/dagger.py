@@ -135,14 +135,19 @@ class InteractiveTrajectoryCollector(gym.Wrapper):
         self._done_before = True
         self._is_reset = False
 
-    def reset(self) -> np.ndarray:
+    def reset(self, obs: np.ndarray = None) -> np.ndarray:
         """Resets the environment.
 
         Returns:
             obs: first observation of a new trajectory.
         """
+
         self.traj_accum = rollout.TrajectoryAccumulator()
-        obs = self.env.reset()
+        if obs is None:
+            obs = self.env.reset()
+        # else:
+        #     self.env.reset()
+        #     self.unwrapped.state = obs
         self._last_obs = obs
         self.traj_accum.add_step({"obs": obs})
         self._done_before = False
