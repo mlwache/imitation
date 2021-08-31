@@ -15,12 +15,12 @@ from imitation.data import rollout
 
 ENV_NAME = "CartPole-v1"
 EXPERT_POLICY_PATH = "tests/data/expert_models/cartpole_0/policies/final/"
-N_ROUNDS = 6
-N_TRAJECTORIES_PER_ROUND = 5
+N_ROUNDS = 10
+N_TRAJECTORIES_PER_ROUND = 1
 N_ENVIRONMENTS = 1
 SCRATCH_DIRECTORY = "experiments/scratch_dir/"
 MIN_N_EPISODES = 15  # only used by rollouts.py
-RAMPDOWN_ROUNDS: int = N_ROUNDS - 1  # This way the agent acts alone in the end.
+RAMPDOWN_ROUNDS: int = 100#_ROUNDS - 1  # This way the agent acts alone in the end.
 
 
 def run_and_show():
@@ -79,7 +79,10 @@ def return_when_running_policy_on_env(policy: BasePolicy, env: VecEnv, render=Fa
     return total_return
 
 
-def train_dagger(expert_policy, trainer, env, render=False):
+def train_dagger(expert_policy, trainer, env, render=False, N_ROUNDS=N_ROUNDS,
+                N_TRAJECTORIES_PER_ROUND=N_TRAJECTORIES_PER_ROUND,
+                MAX_STEPS_PER_TRAJECTORY=505,
+                ):
     episode_lengths = []
     times_failed = 0
     final_obs_from_last_trajectory = None
@@ -111,7 +114,7 @@ def train_dagger(expert_policy, trainer, env, render=False):
                     assert collector.env._max_episode_steps == np.inf
                     times_failed += 1
                     collector.reset()
-                if j >= 505:
+                if j >= MAX_STEPS_PER_TRAJECTORY:
                     done = True
                     trajectory = collector.traj_accum.finish_trajectory()
                     timestamp = util.make_unique_timestamp()
