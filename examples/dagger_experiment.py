@@ -81,9 +81,10 @@ def return_when_running_policy_on_env(policy: BasePolicy, env: VecEnv, render=Fa
 
 def train_dagger(expert_policy, trainer, env, render=False, N_ROUNDS=N_ROUNDS,
                 N_TRAJECTORIES_PER_ROUND=N_TRAJECTORIES_PER_ROUND,
-                MAX_STEPS_PER_TRAJECTORY=505,
+                MAX_STEPS_PER_TRAJECTORY=505, gets_knocked=False
                 ):
     episode_lengths = []
+    failed = []
     times_failed = 0
     final_obs_from_last_trajectory = None
     for current_round in range(N_ROUNDS):
@@ -104,18 +105,22 @@ def train_dagger(expert_policy, trainer, env, render=False, N_ROUNDS=N_ROUNDS,
             while not done:
                 if render:
                     env.render()
-                (expert_action,), _ = expert_policy.predict(
-                    obs[None], deterministic=True
-                )  # collects expert actions/predictions
-                obs, _, done, _ = collector.step(expert_action)  # using the expert_action in most cases
+                # (expert_action,), _ = expert_policy.predict(
+                #     obs[None], deterministic=True
+                # )  # collects expert actions/predictions
+                # print(obs)
+                expert_action = expert_policy(obs)
+                obs, _, done, _ = collector.step(expert_action, gets_knocked=gets_knocked)  # using the expert_action in most cases
                 j += 1
                 # while randomly injecting the actual policy.
                 if done:  # done because it failed
                     assert collector.env._max_episode_steps == np.inf
                     times_failed += 1
+                    failed.append(True) # Could change this to have a different list for each round
                     collector.reset()
                 if j >= MAX_STEPS_PER_TRAJECTORY:
                     done = True
+                    failed.append(False)
                     trajectory = collector.traj_accum.finish_trajectory()
                     timestamp = util.make_unique_timestamp()
                     trajectory_path = os.path.join(
@@ -128,9 +133,11 @@ def train_dagger(expert_policy, trainer, env, render=False, N_ROUNDS=N_ROUNDS,
     print("episode lengths: ", episode_lengths)
     print("times failed:", times_failed)
 
+    return episode_lengths, times_failed, failed
 
-def make_trainer():
-    beta_schedule = dagger.LinearBetaSchedule(RAMPDOWN_ROUNDS)
+
+def make_trainer(rampdown_rounds=RAMPDOWN_ROUNDS):
+    beta_schedule = dagger.LinearBetaSchedule(rampdown_rounds)
     env = gym.make(ENV_NAME)
     env.seed(42)
 

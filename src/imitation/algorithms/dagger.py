@@ -10,6 +10,7 @@ import abc
 import dataclasses
 import logging
 import os
+from types import new_class
 from typing import Callable, Tuple, Union
 
 import gym
@@ -134,6 +135,7 @@ class InteractiveTrajectoryCollector(gym.Wrapper):
         self._last_obs = None
         self._done_before = True
         self._is_reset = False
+        self._step_count =  0
 
     def reset(self, obs: np.ndarray = None) -> np.ndarray:
         """Resets the environment.
@@ -154,7 +156,7 @@ class InteractiveTrajectoryCollector(gym.Wrapper):
         self._is_reset = True
         return obs
 
-    def step(self, user_action: np.ndarray) -> Tuple[np.ndarray, float, bool, dict]:
+    def step(self, user_action: np.ndarray, gets_knocked=False) -> Tuple[np.ndarray, float, bool, dict]:
         """Steps the environment.
 
         DAgger needs to be able to inject imitation policy actions randomly at some
@@ -180,6 +182,13 @@ class InteractiveTrajectoryCollector(gym.Wrapper):
 
         # actually step the env & record data as appropriate
         next_obs, reward, done, info = self.env.step(actual_act)
+
+        if gets_knocked:
+            if self._step_count in 64 * (2 ** np.arange(16)):
+                next_obs[0] = np.clip(-3, -5*next_obs[0], 3)
+                next_obs[2] = -2. * next_obs[2]
+                print('Knocked!')
+
         self._last_obs = next_obs
         self.traj_accum.add_step(
             {"acts": user_action, "obs": next_obs, "rews": reward, "infos": info}
@@ -199,6 +208,8 @@ class InteractiveTrajectoryCollector(gym.Wrapper):
             # record the fact that we're already done to avoid saving demo over and
             # over until the user resets
             self._done_before = True
+        
+        self._step_count += 1
 
         return next_obs, reward, done, info
 
